@@ -75,3 +75,75 @@
     ratio
   )
 )
+
+;; Calculate interest accrued on a loan
+(define-private (calculate-interest
+    (principal uint)
+    (rate uint)
+    (blocks uint)
+  )
+  (let (
+      (interest-per-block (/ (* principal rate) (* u100 u144))) ;; Daily interest divided by blocks per day
+      (total-interest (* interest-per-block blocks))
+    )
+    total-interest
+  )
+)
+
+;; Check if a loan position should be liquidated
+(define-private (check-liquidation (loan-id uint))
+  (let (
+      (loan (unwrap! (map-get? loans { loan-id: loan-id }) ERR-LOAN-NOT-FOUND))
+      (btc-price (unwrap! (get price (map-get? collateral-prices { asset: "BTC" }))
+        ERR-NOT-INITIALIZED
+      ))
+      (current-ratio (calculate-collateral-ratio (get collateral-amount loan)
+        (get loan-amount loan) btc-price
+      ))
+    )
+    (if (<= current-ratio (var-get liquidation-threshold))
+      (liquidate-position loan-id)
+      (ok true)
+    )
+  )
+)
+
+;; Liquidate a loan position that has fallen below the threshold
+(define-private (liquidate-position (loan-id uint))
+  (let (
+      (loan (unwrap! (map-get? loans { loan-id: loan-id }) ERR-LOAN-NOT-FOUND))
+      (borrower (get borrower loan))
+    )
+    (begin
+      (map-set loans { loan-id: loan-id } (merge loan { status: "liquidated" }))
+      (map-delete user-loans { user: borrower })
+      (ok true)
+    )
+  )
+)
+
+;; Validate that a loan ID is within valid range
+(define-private (validate-loan-id (loan-id uint))
+  (and
+    (> loan-id u0)
+    (<= loan-id (var-get total-loans-issued))
+  )
+)
+
+;; Check if an asset is in the list of valid assets
+(define-private (is-valid-asset (asset (string-ascii 3)))
+  (is-some (index-of VALID-ASSETS asset))
+)
+
+;; Validate price is within reasonable bounds
+(define-private (is-valid-price (price uint))
+  (and
+    (> price u0)
+    (<= price u1000000000000) ;; Reasonable upper limit for price
+  )
+)
+
+;; Helper function for filtering loan IDs
+(define-private (not-equal-loan-id (id uint))
+  (not (is-eq id id))
+)
